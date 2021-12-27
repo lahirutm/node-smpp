@@ -388,3 +388,5 @@ will be completely ignored if not enabled.
 ## License
 
 node-smpp is released under the MIT license.
+
+Blog Link: https://blogs.webservice.lk/2021/12/27/node-js-smpp-server-client/
