@@ -62,31 +62,254 @@ var session = smpp.connect({
 
 ``` javascript
 var smpp = require('smpp');
-var server = smpp.createServer({
-	debug: true
-}, function(session) {
-	session.on('error', function (err) {
-		// Something ocurred, not listening for this event will terminate the program
-  	});
+const utf8 = require('utf8');
+
+
+var server = smpp.createServer(function(session) {
+
+	console.log("\nIncoming session %s", session);
+
 	session.on('bind_transceiver', function(pdu) {
 		// we pause the session to prevent further incoming pdu events,
 		// untill we authorize the session with some async operation.
+		console.log("\nPDU bind_transceiver %s",pdu);
 		session.pause();
+
 		checkAsyncUserPass(pdu.system_id, pdu.password, function(err) {
+			var system_id = pdu.system_id;
+			console.log("\nAtemting to connect with system_id %s",system_id);
+
 			if (err) {
 				session.send(pdu.response({
 					command_status: smpp.ESME_RBINDFAIL
 				}));
 				session.close();
+				console.log("\nAuth Failed for id %s password %s \n",pdu.system_id,pdu.password);
 				return;
 			}
 			session.send(pdu.response());
 			session.resume();
+
+			session.on('submit_sm', function(pdu) {
+				var destination_addr = pdu.destination_addr;
+				var short_message = pdu.short_message.message;
+				if(pdu.message_payload && pdu.message_payload.length>0) {
+					console.log("Payload %s \n",pdu.message_payload);
+					if(pdu.message_payload.message) short_message = pdu.message_payload.message;
+				}
+				if(destination_addr && destination_addr.length==11 && destination_addr.substr(0,2)==="94"){
+					if(short_message && short_message.length>0){
+						destination_addr = "0" + destination_addr.substr(-9);
+
+						let sms = utf8.decode(short_message);
+						let char_count = sms.length;
+						let no_of_sms = Math.ceil(char_count / 160);
+
+						var msgid = "1234567890"; // generate a unique number here
+
+						var message_id = msgid.padStart(10, '0');
+						session.send(pdu.response({
+							message_id: message_id
+						}));
+
+						if (pdu.registered_delivery) {
+							send_delivery_reports(pdu, session, system_id, message_id);
+						}
+
+						console.log("\nSMS Sent, msg id %s",msgid);
+						
+					}
+					else {
+						console.log("\nInvalid message content %s \n", short_message);
+					}
+				}
+				else {
+					console.log("\nInvalid destination number %s \n", destination_addr);
+				}
+
+				console.log("\nPDU bind_transceiver :: submit_sm %s",pdu);
+			});
+
+			session.on('unbind', function(pdu) {
+				session.send(pdu.response());
+				session.close();
+				console.log("\nPDU bind_transceiver :: unbind %s",pdu);
+			});
+
+			session.on('enquire_link', function(pdu) {
+				session.send(pdu.response());
+				console.log("\nPDU bind_transceiver :: enquire_link %s",pdu);
+			});
+
+			session.on('deliver_sm_resp', function(pdu) {
+				console.log("\nPDU bind_transceiver :: deliver_sm_resp for %s \n %s",system_id, pdu);
+			});
 		});
 	});
-});
 
+	session.on('bind_transmitter',function (pdu) {
+
+		session.pause();
+		checkAsyncUserPass(pdu.system_id, pdu.password, function(err) {
+			var system_id = pdu.system_id;
+			console.log("\nAtemting to connect with system_id %s",system_id);
+
+			if (err) {
+				session.send(pdu.response({
+					command_status: smpp.ESME_RBINDFAIL
+				}));
+				session.close();
+				console.log("\nAuth Failed for id %s password %s \n",pdu.system_id,pdu.password);
+				return;
+			}
+			session.send(pdu.response());
+			session.resume();
+
+
+			session.on('submit_sm', function(pdu) {
+				
+				var destination_addr = pdu.destination_addr;
+				var short_message = pdu.short_message.message;
+				if(pdu.message_payload) {
+					console.log("Payload %s \n",pdu.message_payload);
+					if(pdu.message_payload.message) short_message = pdu.message_payload.message;
+				}
+				if(destination_addr && destination_addr.length==11 && destination_addr.substr(0,2)==="94"){
+					if(short_message && short_message.length>0){
+						destination_addr = "0" + destination_addr.substr(-9);
+
+						let sms = utf8.decode(short_message);
+						let char_count = sms.length;
+						let no_of_sms = Math.ceil(char_count / 160);
+
+						var msgid = "1234567890"; // generate a unique number here
+						var message_id = msgid.padStart(10, '0');
+						session.send(pdu.response({
+							message_id: message_id
+						}));
+
+						if (pdu.registered_delivery) {
+							send_delivery_reports(pdu, session, system_id, message_id);
+						}
+
+						console.log("\nSMS Sent, msg id %s",msgid);
+					}
+					else {
+						console.log("Invalid message content %s \n", short_message);
+					}
+				}
+				else {
+					console.log("\nInvalid destination number %s \n", destination_addr);
+				}
+
+				console.log("\nPDU bind_transmitter :: submit_sm %s", pdu);
+			});
+
+			session.on('unbind', function(pdu) {
+				session.send(pdu.response());
+				session.close();
+
+				console.log("\nPDU bind_transmitter :: unbind %s", pdu);
+			});
+
+			session.on('enquire_link', function(pdu) {
+				session.send(pdu.response());
+				
+				console.log("\nPDU bind_transmitter :: enquire_link %s", pdu);
+			});
+		});
+
+		console.log("\nPDU bind_transmitter %s",pdu);
+	});
+
+	session.on('bind_receiver',function (pdu) {
+		
+		session.pause();
+		checkAsyncUserPass(pdu.system_id, pdu.password, function(err) {
+			var system_id = pdu.system_id;
+			console.log("\nAtemting to connect with system_id %s",system_id);
+
+			if (err) {
+				session.send(pdu.response({
+					command_status: smpp.ESME_RBINDFAIL
+				}));
+				session.close();
+				console.log("\nAuth Failed for id %s password %s \n",pdu.system_id,pdu.password);
+				return;
+			}
+			session.send(pdu.response());
+			session.resume();
+
+			session.on('deliver_sm_resp', function(pdu) {
+				
+				console.log("\nPDU bind_receiver :: deliver_sm_resp %s", pdu);
+			});
+
+			session.on('unbind', function(pdu) {
+				session.send(pdu.response());
+				session.close();
+
+				console.log("\nPDU bind_receiver :: unbind %s", pdu);
+			});
+
+			session.on('enquire_link', function(pdu) {
+				session.send(pdu.response());
+
+				console.log("\nPDU bind_receiver :: enquire_link %s", pdu);
+			});
+		});
+
+		console.log("\nPDU bind_receiver %s",pdu);
+	});
+});
 server.listen(2775);
+
+
+function checkAsyncUserPass(system_id, password, callback) {
+
+	// check & validate system_id and password from your authentication mechanism
+	var err = false; // set false for testing
+
+	if(err) {
+		callback(1); // error
+		console.log("\nLogin failed for system_id: %s", system_id);
+	}
+	else {
+		callback(0); // no error
+		console.log("\nUser %s successfully logged in.", system_id);
+	}
+}
+
+
+function send_delivery_reports(pdu, session, system_id, message_id){
+	
+	var nsms = "" + 1;
+	nsms = nsms.padStart(3, '0');
+
+	var m = new Date();
+	var c_year = "" + m.getFullYear();
+	var c_month = "" + (m.getMonth()+1);
+	var c_date = "" + m.getDate();
+	var c_hour = "" + m.getHours();
+	var c_minute = "" + m.getMinutes();
+	var second = "" + m.getSeconds();
+
+	var current_time = c_year+c_month+c_date+c_hour+c_minute+second;
+
+	session.deliver_sm({
+		esm_class: 4,
+	    source_addr: pdu.destination_addr,
+	    destination_addr: pdu.source_addr,
+	    short_message: {
+	    	message: 'id:'+message_id+' sub:'+nsms+' dlvrd:'+nsms+' submit date:'+current_time+' done date:'+current_time+' stat:DELIVRD err:0 text:@'
+	    },
+	    receipted_message_id: message_id,
+	    user_message_reference: message_id
+	});
+
+	console.log("\nsend_delivery_report DELIVRD :: deliver_sm pdu sent for %s",system_id);
+}
+
 ```
 
 It's very important to listen for session errors, not listening for error events
